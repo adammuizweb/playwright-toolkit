@@ -4,12 +4,13 @@
   "description": "Browser automation toolkit for AI agents — screenshot, debug, OCR, multi-step flow testing. Zero hardcoded config.",
   "type": "module",
   "scripts": {
-    "screenshot": "node screenshot.mjs",
-    "flow": "node flow.mjs",
-    "debug": "node debug.mjs",
-    "ocr": "node ocr-screenshot.mjs",
-    "devices": "node device-screenshots.mjs",
-    "connect": "node connect-existing.mjs"
+    "screenshot": "node scripts/screenshot.mjs",
+    "flow": "node scripts/flow.mjs",
+    "debug": "node scripts/debug.mjs",
+    "ocr": "node scripts/ocr-screenshot.mjs",
+    "devices": "node scripts/device-screenshots.mjs",
+    "connect": "node scripts/connect-existing.mjs",
+    "gemini": "node integrations/gemini/generate-image.mjs"
   },
   "keywords": [
     "playwright",

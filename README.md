@@ -2,7 +2,7 @@
 
 A zero-config, multi-purpose browser automation toolkit designed for AI coding agents (opencode, Claude, Cursor, etc.). No hardcoded URLs, selectors, or credentials — everything is parameterized.
 
-- **6 ready-to-use scripts** — screenshot, debug, OCR, multi-step flow testing
+- **8 scripts** — screenshot, debug, OCR, multi-step flow testing, Gemini image generation
 - **Uses system Chrome** — no browser download needed
 - **Zero hardcoded config** — pass URL, credentials, selectors at runtime
 - **Designed for AI** — predictable CLI, JSON-driven flows, error screenshots
@@ -15,48 +15,70 @@ npm install
 
 Requires **Node.js >= 18** and **Google Chrome/Chromium** installed on the system.
 
-## Scripts
+## Directory Structure
 
-| Script | Purpose |
-|--------|---------|
-| `screenshot.mjs` | Take screenshot of a URL |
-| `flow.mjs` | Run multi-step flow from JSON (testing, navigation, assertion) |
-| `ocr-screenshot.mjs` | Screenshot + OCR pipeline |
-| `debug.mjs` | Dump DOM, meta, console logs + screenshot |
-| `device-screenshots.mjs` | Screenshots at 4 viewports (mobile/tablet/desktop/wide) |
-| `connect-existing.mjs` | Connect to a running Chrome via CDP |
-| `extract-cookies.mjs` | Extract cookies from Chrome profile to JSON file |
+```
+├── scripts/                    # Core automation scripts
+│   ├── screenshot.mjs          Take screenshot of a URL
+│   ├── flow.mjs                Multi-step flow from JSON
+│   ├── debug.mjs               Dump DOM, meta, console logs + screenshot
+│   ├── ocr-screenshot.mjs      Screenshot + OCR pipeline
+│   ├── device-screenshots.mjs  Screenshots at 4 viewports
+│   ├── connect-existing.mjs    Connect to running Chrome via CDP
+│   └── extract-cookies.mjs     Extract cookies from Chrome profile
+├── integrations/               # Platform-specific integrations
+│   └── gemini/
+│       └── generate-image.mjs  Generate image via Google Gemini (Imagen)
+├── .env-sample                 Configuration template
+└── package.json
+```
+
+### Quick reference
+
+| Script | Path |
+|--------|------|
+| Quick screenshot | `node scripts/screenshot.mjs <url> [output]` |
+| Multi-step flow | `node scripts/flow.mjs <flow.json>` |
+| Debug page | `node scripts/debug.mjs <url>` |
+| OCR | `node scripts/ocr-screenshot.mjs <url>` |
+| All viewports | `node scripts/device-screenshots.mjs <url>` |
+| CDP connect | `node scripts/connect-existing.mjs <url>` |
+| Extract cookies | `node scripts/extract-cookies.mjs <profile-dir>` |
+| Gemini image | `node integrations/gemini/generate-image.mjs [prompt]` |
 
 ## Quick Start
 
 ```bash
 # Screenshot a page
-node screenshot.mjs https://example.com /tmp/screenshot.png
+node scripts/screenshot.mjs https://example.com /tmp/screenshot.png
 
 # Screenshot with login
-node screenshot.mjs https://example.com/dashboard \
+node scripts/screenshot.mjs https://example.com/dashboard \
   /tmp/dashboard.png --login --email user@email.com --password pass
 
 # Extract cookies from Chrome profile, then reuse without profile lock issues
-node extract-cookies.mjs ~/.config/google-chrome /tmp/cookies.json
-node screenshot.mjs https://example.com/dashboard \
+node scripts/extract-cookies.mjs ~/.config/google-chrome /tmp/cookies.json
+node scripts/screenshot.mjs https://example.com/dashboard \
   /tmp/dashboard.png --cookies /tmp/cookies.json
 
 # Multi-step flow (see: Flow JSON format below)
-node flow.mjs my-flow.json
-node flow.mjs my-flow.json --var URL=https://example.com --var EMAIL=user@example.com
+node scripts/flow.mjs my-flow.json
+node scripts/flow.mjs my-flow.json --var URL=https://example.com --var EMAIL=user@example.com
 
 # Debug a page (HTTP status, meta tags, DOM, console)
-node debug.mjs https://example.com
+node scripts/debug.mjs https://example.com
 
 # OCR — screenshot + extract text via Tesseract
-node ocr-screenshot.mjs https://example.com --lang eng
+node scripts/ocr-screenshot.mjs https://example.com --lang eng
 
 # All viewports at once
-node device-screenshots.mjs https://example.com
+node scripts/device-screenshots.mjs https://example.com
 
 # Connect to Chrome already running
-node connect-existing.mjs http://localhost:3000 /tmp/page.png
+node scripts/connect-existing.mjs http://localhost:3000 /tmp/page.png
+
+# Generate image via Gemini (Imagen) — requires Chrome running on CDP
+node integrations/gemini/generate-image.mjs "your prompt here"
 ```
 
 ## Flow Testing (`flow.mjs`)
@@ -83,7 +105,7 @@ Run multi-step browser flows defined in a JSON file. Supports login, navigation,
 Run with variables:
 
 ```bash
-node flow.mjs flow.json --var URL=http://myapp.local --var EMAIL=admin@myapp.local --var PASSWORD=secret
+node scripts/flow.mjs flow.json --var URL=http://myapp.local --var EMAIL=admin@myapp.local --var PASSWORD=secret
 ```
 
 ### All actions
@@ -116,7 +138,7 @@ The most reliable way to access authenticated pages: extract cookies from your C
 ### Step 1: Extract cookies
 
 ```bash
-node extract-cookies.mjs ~/.config/google-chrome /tmp/cookies.json
+node scripts/extract-cookies.mjs ~/.config/google-chrome /tmp/cookies.json
 ```
 
 This reads the Chrome profile's SQLite cookie database and saves Google/Gemini session cookies to a JSON file. Requires `sqlite3` CLI.
@@ -124,9 +146,9 @@ This reads the Chrome profile's SQLite cookie database and saves Google/Gemini s
 ### Step 2: Use cookies in any script
 
 ```bash
-node screenshot.mjs https://gemini.google.com /tmp/gemini.png --cookies /tmp/cookies.json
-node flow.mjs my-flow.json --cookies /tmp/cookies.json
-node debug.mjs https://mail.google.com --cookies /tmp/cookies.json
+node scripts/screenshot.mjs https://gemini.google.com /tmp/gemini.png --cookies /tmp/cookies.json
+node scripts/flow.mjs my-flow.json --cookies /tmp/cookies.json
+node scripts/debug.mjs https://mail.google.com --cookies /tmp/cookies.json
 ```
 
 ### How it works
@@ -149,11 +171,27 @@ When Chrome is already open (remote desktop, SSH, terminal), the profile is lock
 google-chrome --remote-debugging-port=9222 &
 
 # 2. Connect from another terminal
-node connect-existing.mjs http://localhost:3000 /tmp/screenshot.png
-node connect-existing.mjs http://localhost:3000 --dump-html
+node scripts/connect-existing.mjs http://localhost:3000 /tmp/screenshot.png
+node scripts/connect-existing.mjs http://localhost:3000 --dump-html
 ```
 
 This reuses the existing browser session — no login needed.
+
+## Gemini — Generate Images via Imagen
+
+Generate AI images using Google Gemini's Imagen model through browser automation:
+
+```bash
+# 1. Start Chrome with remote debugging (one-time)
+google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-profile &
+
+# 2. Generate an image
+node integrations/gemini/generate-image.mjs "your creative prompt here"
+```
+
+The script connects to a running Chrome instance (already logged into Google), sends the prompt to Gemini, and saves the generated image at full resolution using canvas extraction (bypasses Chrome extension fetch interceptors).
+
+**Requires:** Chrome running with `--remote-debugging-port=9222` and a Google account logged in with Gemini access.
 
 ## Notes
 
