@@ -62,6 +62,7 @@
 
 import { chromium } from 'playwright';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { resolve as pathResolve } from 'path';
 
 // --- Parse CLI ---
 const args = process.argv.slice(2);
@@ -70,6 +71,7 @@ const cliVars = {};
 let profileDir = null;
 let headless = true;
 let outputDir = '/tmp';
+let cookiesFile = null;
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--var' && args[i+1]) {
@@ -78,6 +80,8 @@ for (let i = 0; i < args.length; i++) {
     else cliVars[args[i]] = '';
   } else if (args[i] === '--profile' && args[i+1]) {
     profileDir = args[++i];
+  } else if (args[i] === '--cookies' && args[i+1]) {
+    cookiesFile = args[++i];
   } else if (args[i] === '--headless' && args[i+1]) {
     headless = args[++i] !== 'false';
   } else if (args[i] === '--output' && args[i+1]) {
@@ -113,209 +117,221 @@ function resolve(val) {
 
 // --- Run flow ---
 (async () => {
-  const launchOpts = {
-    channel: 'chrome',
-    headless,
-    args: ['--no-sandbox', '--disable-gpu', '--ignore-certificate-errors'],
-  };
-  if (profileDir) launchOpts.args.push(`--user-data-dir=${profileDir}`);
-
-  const browser = await chromium.launch(launchOpts);
-  const context = profileDir
-    ? await browser.newContext({ ignoreHTTPSErrors: true })
-    : await browser.newContext({ viewport: { width: 1280, height: 720 }, ignoreHTTPSErrors: true });
-  const page = await context.newPage();
-
+  const baseArgs = ['--no-sandbox', '--disable-gpu', '--ignore-certificate-errors'];
   const results = {};
   let failed = false;
-
-  // Store page errors
   const pageErrors = [];
-  page.on('pageerror', err => pageErrors.push(err.message));
 
-  console.log(`Flow: ${flow.name || '(unnamed)'}`);
-  console.log(`Steps: ${steps.length}`);
-  console.log('---');
+  let page;
 
-  for (let i = 0; i < steps.length; i++) {
-    const step = steps[i];
-    const stepNum = i + 1;
-    const label = step.label || step.action;
-    const savedVars = { step: stepNum, ...vars, ...results };
-
-    if (failed && step.action !== 'screenshot') {
-      // Skip remaining steps on failure, except screenshot for error capture
-      continue;
-    }
-
-    try {
-      switch (step.action) {
-        case 'goto': {
-          const url = resolve(step.url);
-          await page.goto(url, { waitUntil: step.waitUntil || 'networkidle', timeout: step.timeout || 30000 });
-          console.log(`  ${stepNum}. goto → ${page.url()}`);
-          break;
-        }
-
-        case 'fill': {
-          const sel = resolve(step.selector);
-          const val = resolve(step.value);
-          await page.fill(sel, val);
-          console.log(`  ${stepNum}. fill ${sel} = "${val}"`);
-          break;
-        }
-
-        case 'click': {
-          const sel = resolve(step.selector);
-          await page.click(sel);
-          if (step.wait) await page.waitForTimeout(step.wait);
-          if (step.waitUntil) await page.waitForLoadState(step.waitUntil);
-          console.log(`  ${stepNum}. click ${sel}`);
-          break;
-        }
-
-        case 'wait': {
-          await page.waitForTimeout(step.timeout || 1000);
-          console.log(`  ${stepNum}. wait ${step.timeout || 1000}ms`);
-          break;
-        }
-
-        case 'waitSelector': {
-          const sel = resolve(step.selector);
-          await page.waitForSelector(sel, { timeout: step.timeout || 10000, state: 'visible' });
-          console.log(`  ${stepNum}. waitSelector ${sel}`);
-          break;
-        }
-
-        case 'screenshot': {
-          const path = resolve(step.path) || `${outputDir}/flow-step-${stepNum}.png`;
-          await page.screenshot({ path, fullPage: step.fullPage || false });
-          console.log(`  ${stepNum}. screenshot → ${path}`);
-          break;
-        }
-
-        case 'assertExists': {
-          const sel = resolve(step.selector);
-          const el = await page.$(sel);
-          if (!el) throw new Error(`Element not found: ${sel}`);
-          console.log(`  ${stepNum}. assertExists ${sel} ✓`);
-          break;
-        }
-
-        case 'assertText': {
-          const sel = resolve(step.selector);
-          const text = await page.textContent(sel);
-          const expect = resolve(step.contains);
-          if (!text || !text.includes(expect)) {
-            throw new Error(`assertText fail: "${sel}" text "${text?.trim()}" does not contain "${expect}"`);
-          }
-          console.log(`  ${stepNum}. assertText ${sel} contains "${expect}" ✓`);
-          break;
-        }
-
-        case 'assertUrl': {
-          const currentUrl = page.url();
-          const expect = resolve(step.contains);
-          if (!currentUrl.includes(expect)) {
-            throw new Error(`assertUrl fail: "${currentUrl}" does not contain "${expect}"`);
-          }
-          console.log(`  ${stepNum}. assertUrl contains "${expect}" ✓`);
-          break;
-        }
-
-        case 'extractText': {
-          const sel = resolve(step.selector);
-          const text = await page.textContent(sel);
-          results[step.save] = text?.trim() || '';
-          console.log(`  ${stepNum}. extractText ${sel} → $${step.save} = "${results[step.save].slice(0, 60)}"`);
-          break;
-        }
-
-        case 'extractHtml': {
-          const sel = resolve(step.selector);
-          const html = await page.innerHTML(sel);
-          results[step.save] = html || '';
-          console.log(`  ${stepNum}. extractHtml ${sel} → $${step.save} (${(html?.length || 0)} chars)`);
-          break;
-        }
-
-        case 'scrollTo': {
-          const sel = resolve(step.selector);
-          await page.$eval(sel, el => el.scrollIntoView({ behavior: 'instant', block: 'center' }));
-          console.log(`  ${stepNum}. scrollTo ${sel}`);
-          break;
-        }
-
-        case 'hover': {
-          const sel = resolve(step.selector);
-          await page.hover(sel);
-          if (step.wait) await page.waitForTimeout(step.wait);
-          console.log(`  ${stepNum}. hover ${sel}`);
-          break;
-        }
-
-        case 'selectOption': {
-          const sel = resolve(step.selector);
-          const val = resolve(step.value);
-          await page.selectOption(sel, val);
-          console.log(`  ${stepNum}. selectOption ${sel} = "${val}"`);
-          break;
-        }
-
-        case 'evaluate': {
-          const code = resolve(step.code);
-          const result = await page.evaluate(code);
-          if (step.save) {
-            results[step.save] = result;
-            console.log(`  ${stepNum}. evaluate → $${step.save} = ${JSON.stringify(result).slice(0, 80)}`);
-          } else {
-            console.log(`  ${stepNum}. evaluate → ${JSON.stringify(result).slice(0, 80)}`);
-          }
-          break;
-        }
-
-        case 'log': {
-          const msg = resolve(step.message);
-          console.log(`  ${stepNum}. ${msg}`);
-          break;
-        }
-
-        case 'reload': {
-          await page.reload({ waitUntil: 'networkidle' });
-          console.log(`  ${stepNum}. reload → ${page.url()}`);
-          break;
-        }
-
-        case 'keyPress': {
-          const key = resolve(step.key);
-          await page.keyboard.press(key);
-          console.log(`  ${stepNum}. keyPress "${key}"`);
-          break;
-        }
-
-        default:
-          console.warn(`  ${stepNum}. Unknown action: "${step.action}" — skipped`);
-      }
-    } catch (err) {
-      failed = true;
-      console.error(`  ${stepNum}. ❌ ${step.action}: ${err.message}`);
-      // Screenshot on failure
-      try {
-        const errPath = `${outputDir}/flow-error-step-${stepNum}.png`;
-        await page.screenshot({ path: errPath, fullPage: true });
-        console.error(`     Error screenshot: ${errPath}`);
-      } catch {}
-    }
-  }
-
-  console.log('---');
-  if (failed) {
-    console.log('Result: ❌ FAILED');
-    if (pageErrors.length) console.log(`Page errors: ${pageErrors.join('; ')}`);
-    process.exit(1);
+  if (profileDir) {
+    const context = await chromium.launchPersistentContext(profileDir, {
+      channel: 'chrome',
+      headless,
+      args: baseArgs,
+      viewport: { width: 1280, height: 720 },
+      ignoreHTTPSErrors: true,
+    });
+    const pages = context.pages();
+    page = pages.length > 0 ? pages[0] : await context.newPage();
+    page.on('pageerror', err => pageErrors.push(err.message));
+    await runSteps(page);
+    await context.close();
   } else {
-    console.log('Result: ✅ PASSED');
+    const browser = await chromium.launch({ channel: 'chrome', headless, args: baseArgs });
+    const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, ignoreHTTPSErrors: true });
+    if (cookiesFile && existsSync(cookiesFile)) {
+      const cookies = JSON.parse(readFileSync(cookiesFile, 'utf-8'));
+      await context.addCookies(cookies);
+      console.log(`Loaded ${cookies.length} cookies`);
+    }
+    page = await context.newPage();
+    page.on('pageerror', err => pageErrors.push(err.message));
+    await runSteps(page);
+    await browser.close();
   }
 
-  await browser.close();
+  async function runSteps(page) {
+    console.log(`Flow: ${flow.name || '(unnamed)'}`);
+    console.log(`Steps: ${steps.length}`);
+    console.log('---');
+
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
+      const stepNum = i + 1;
+      const label = step.label || step.action;
+      const savedVars = { step: stepNum, ...vars, ...results };
+
+      if (failed && step.action !== 'screenshot') {
+        continue;
+      }
+
+      try {
+        switch (step.action) {
+          case 'goto': {
+            const url = resolve(step.url);
+            await page.goto(url, { waitUntil: step.waitUntil || 'networkidle', timeout: step.timeout || 30000 });
+            console.log(`  ${stepNum}. goto → ${page.url()}`);
+            break;
+          }
+
+          case 'fill': {
+            const sel = resolve(step.selector);
+            const val = resolve(step.value);
+            await page.fill(sel, val);
+            console.log(`  ${stepNum}. fill ${sel} = "${val}"`);
+            break;
+          }
+
+          case 'click': {
+            const sel = resolve(step.selector);
+            await page.click(sel);
+            if (step.wait) await page.waitForTimeout(step.wait);
+            if (step.waitUntil) await page.waitForLoadState(step.waitUntil);
+            console.log(`  ${stepNum}. click ${sel}`);
+            break;
+          }
+
+          case 'wait': {
+            await page.waitForTimeout(step.timeout || 1000);
+            console.log(`  ${stepNum}. wait ${step.timeout || 1000}ms`);
+            break;
+          }
+
+          case 'waitSelector': {
+            const sel = resolve(step.selector);
+            await page.waitForSelector(sel, { timeout: step.timeout || 10000, state: 'visible' });
+            console.log(`  ${stepNum}. waitSelector ${sel}`);
+            break;
+          }
+
+          case 'screenshot': {
+            const path = resolve(step.path) || `${outputDir}/flow-step-${stepNum}.png`;
+            await page.screenshot({ path, fullPage: step.fullPage || false });
+            console.log(`  ${stepNum}. screenshot → ${path}`);
+            break;
+          }
+
+          case 'assertExists': {
+            const sel = resolve(step.selector);
+            const el = await page.$(sel);
+            if (!el) throw new Error(`Element not found: ${sel}`);
+            console.log(`  ${stepNum}. assertExists ${sel} ✓`);
+            break;
+          }
+
+          case 'assertText': {
+            const sel = resolve(step.selector);
+            const text = await page.textContent(sel);
+            const expect = resolve(step.contains);
+            if (!text || !text.includes(expect)) {
+              throw new Error(`assertText fail: "${sel}" text "${text?.trim()}" does not contain "${expect}"`);
+            }
+            console.log(`  ${stepNum}. assertText ${sel} contains "${expect}" ✓`);
+            break;
+          }
+
+          case 'assertUrl': {
+            const currentUrl = page.url();
+            const expect = resolve(step.contains);
+            if (!currentUrl.includes(expect)) {
+              throw new Error(`assertUrl fail: "${currentUrl}" does not contain "${expect}"`);
+            }
+            console.log(`  ${stepNum}. assertUrl contains "${expect}" ✓`);
+            break;
+          }
+
+          case 'extractText': {
+            const sel = resolve(step.selector);
+            const text = await page.textContent(sel);
+            results[step.save] = text?.trim() || '';
+            console.log(`  ${stepNum}. extractText ${sel} → $${step.save} = "${results[step.save].slice(0, 60)}"`);
+            break;
+          }
+
+          case 'extractHtml': {
+            const sel = resolve(step.selector);
+            const html = await page.innerHTML(sel);
+            results[step.save] = html || '';
+            console.log(`  ${stepNum}. extractHtml ${sel} → $${step.save} (${(html?.length || 0)} chars)`);
+            break;
+          }
+
+          case 'scrollTo': {
+            const sel = resolve(step.selector);
+            await page.$eval(sel, el => el.scrollIntoView({ behavior: 'instant', block: 'center' }));
+            console.log(`  ${stepNum}. scrollTo ${sel}`);
+            break;
+          }
+
+          case 'hover': {
+            const sel = resolve(step.selector);
+            await page.hover(sel);
+            if (step.wait) await page.waitForTimeout(step.wait);
+            console.log(`  ${stepNum}. hover ${sel}`);
+            break;
+          }
+
+          case 'selectOption': {
+            const sel = resolve(step.selector);
+            const val = resolve(step.value);
+            await page.selectOption(sel, val);
+            console.log(`  ${stepNum}. selectOption ${sel} = "${val}"`);
+            break;
+          }
+
+          case 'evaluate': {
+            const code = resolve(step.code);
+            const result = await page.evaluate(code);
+            if (step.save) {
+              results[step.save] = result;
+              console.log(`  ${stepNum}. evaluate → $${step.save} = ${JSON.stringify(result).slice(0, 80)}`);
+            } else {
+              console.log(`  ${stepNum}. evaluate → ${JSON.stringify(result).slice(0, 80)}`);
+            }
+            break;
+          }
+
+          case 'log': {
+            const msg = resolve(step.message);
+            console.log(`  ${stepNum}. ${msg}`);
+            break;
+          }
+
+          case 'reload': {
+            await page.reload({ waitUntil: 'networkidle' });
+            console.log(`  ${stepNum}. reload → ${page.url()}`);
+            break;
+          }
+
+          case 'keyPress': {
+            const key = resolve(step.key);
+            await page.keyboard.press(key);
+            console.log(`  ${stepNum}. keyPress "${key}"`);
+            break;
+          }
+
+          default:
+            console.warn(`  ${stepNum}. Unknown action: "${step.action}" — skipped`);
+        }
+      } catch (err) {
+        failed = true;
+        console.error(`  ${stepNum}. ❌ ${step.action}: ${err.message}`);
+        try {
+          const errPath = `${outputDir}/flow-error-step-${stepNum}.png`;
+          await page.screenshot({ path: errPath, fullPage: true });
+          console.error(`     Error screenshot: ${errPath}`);
+        } catch {}
+      }
+    }
+
+    console.log('---');
+    if (failed) {
+      console.log('Result: ❌ FAILED');
+      if (pageErrors.length) console.log(`Page errors: ${pageErrors.join('; ')}`);
+      process.exit(1);
+    } else {
+      console.log('Result: ✅ PASSED');
+    }
+  }
 })();

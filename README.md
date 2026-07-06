@@ -25,6 +25,7 @@ Requires **Node.js >= 18** and **Google Chrome/Chromium** installed on the syste
 | `debug.mjs` | Dump DOM, meta, console logs + screenshot |
 | `device-screenshots.mjs` | Screenshots at 4 viewports (mobile/tablet/desktop/wide) |
 | `connect-existing.mjs` | Connect to a running Chrome via CDP |
+| `extract-cookies.mjs` | Extract cookies from Chrome profile to JSON file |
 
 ## Quick Start
 
@@ -36,9 +37,10 @@ node screenshot.mjs https://example.com /tmp/screenshot.png
 node screenshot.mjs https://example.com/dashboard \
   /tmp/dashboard.png --login --email user@email.com --password pass
 
-# Use an existing Chrome profile (skip login)
+# Extract cookies from Chrome profile, then reuse without profile lock issues
+node extract-cookies.mjs ~/.config/google-chrome /tmp/cookies.json
 node screenshot.mjs https://example.com/dashboard \
-  /tmp/dashboard.png --profile ~/.config/google-chrome
+  /tmp/dashboard.png --cookies /tmp/cookies.json
 
 # Multi-step flow (see: Flow JSON format below)
 node flow.mjs my-flow.json
@@ -107,22 +109,38 @@ node flow.mjs flow.json --var URL=http://myapp.local --var EMAIL=admin@myapp.loc
 | `reload` | Reload current page |
 | `log` | Print message to stdout |
 
-## Chrome Profile
+## Cookies — Extract & Reuse Sessions
 
-To access authenticated pages without manual login, pass an existing Chrome profile directory:
+The most reliable way to access authenticated pages: extract cookies from your Chrome profile once, then reuse them across runs.
+
+### Step 1: Extract cookies
 
 ```bash
-node screenshot.mjs {URL} /tmp/page.png --profile ~/.config/google-chrome
+node extract-cookies.mjs ~/.config/google-chrome /tmp/cookies.json
 ```
 
-The profile stores cookies, localStorage, and session data. When used with `--profile`, all scripts attach to that profile and inherit its sessions.
+This reads the Chrome profile's SQLite cookie database and saves Google/Gemini session cookies to a JSON file. Requires `sqlite3` CLI.
+
+### Step 2: Use cookies in any script
+
+```bash
+node screenshot.mjs https://gemini.google.com /tmp/gemini.png --cookies /tmp/cookies.json
+node flow.mjs my-flow.json --cookies /tmp/cookies.json
+node debug.mjs https://mail.google.com --cookies /tmp/cookies.json
+```
+
+### How it works
+
+The `extract-cookies.mjs` script opens the Chrome profile's `Cookies` SQLite database (read-only), filters relevant session cookies, and exports them as JSON. Other scripts load these cookies via `context.addCookies()` before navigating — no profile locking, no corruption risk.
+
+**Re-extract cookies whenever your sessions expire** (after browser restart or logout).
 
 Platform-specific profile locations:
 - **Linux:** `~/.config/google-chrome` or `~/.config/chromium`
 - **macOS:** `~/Library/Application Support/Google/Chrome`
 - **Windows:** `%LOCALAPPDATA%\Google\Chrome\User Data`
 
-## CDP — Running Chrome
+## CDP — Connect to Running Chrome
 
 When Chrome is already open (remote desktop, SSH, terminal), the profile is locked. Use Chrome DevTools Protocol (CDP) instead:
 

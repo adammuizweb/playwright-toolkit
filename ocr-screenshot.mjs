@@ -10,6 +10,7 @@
 
 import { chromium } from 'playwright';
 import { execSync } from 'child_process';
+import { readFileSync, existsSync } from 'fs';
 
 const [,, url] = process.argv;
 const args = process.argv.slice(3);
@@ -22,6 +23,7 @@ const opts = {
   email: '',
   password: '',
   profile: null,
+  cookies: null,
 };
 
 for (let i = 0; i < args.length; i++) {
@@ -31,6 +33,7 @@ for (let i = 0; i < args.length; i++) {
   if (args[i] === '--email' && args[i+1]) opts.email = args[++i];
   if (args[i] === '--password' && args[i+1]) opts.password = args[++i];
   if (args[i] === '--profile' && args[i+1]) opts.profile = args[++i];
+  if (args[i] === '--cookies' && args[i+1]) opts.cookies = args[++i];
 }
 
 if (!url) {
@@ -46,22 +49,40 @@ if (!url) {
 }
 
 (async () => {
-  const launchOpts = {
-    channel: 'chrome',
-    args: ['--no-sandbox', '--disable-gpu', '--ignore-certificate-errors'],
-  };
-  if (opts.profile) {
-    launchOpts.args.push(`--user-data-dir=${opts.profile}`);
-  }
-
-  const browser = await chromium.launch(launchOpts);
+  const baseArgs = ['--no-sandbox', '--disable-gpu', '--ignore-certificate-errors'];
 
   try {
-    const context = opts.profile
-      ? await browser.newContext({ ignoreHTTPSErrors: true })
-      : await browser.newContext({ viewport: { width: 1280, height: 720 }, ignoreHTTPSErrors: true });
-    const page = await context.newPage();
+    let page;
 
+    if (opts.profile) {
+      const context = await chromium.launchPersistentContext(opts.profile, {
+        channel: 'chrome',
+        args: baseArgs,
+        viewport: { width: 1280, height: 720 },
+        ignoreHTTPSErrors: true,
+      });
+      const pages = context.pages();
+      page = pages.length > 0 ? pages[0] : await context.newPage();
+      await runOcr(page);
+      await context.close();
+    } else {
+      const browser = await chromium.launch({ channel: 'chrome', args: baseArgs });
+      const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, ignoreHTTPSErrors: true });
+      if (opts.cookies && existsSync(opts.cookies)) {
+        const cookies = JSON.parse(readFileSync(opts.cookies, 'utf-8'));
+        await context.addCookies(cookies);
+        console.log(`Loaded ${cookies.length} cookies`);
+      }
+      page = await context.newPage();
+      await runOcr(page);
+      await browser.close();
+    }
+  } catch (err) {
+    console.error('Error:', err.message);
+    process.exit(1);
+  }
+
+  async function runOcr(page) {
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
 
     if (opts.login) {
@@ -73,7 +94,6 @@ if (!url) {
 
     await page.screenshot({ path: opts.output, fullPage: false });
     console.log(`Screenshot: ${opts.output}`);
-    await browser.close();
 
     // OCR with Tesseract
     const textFile = '/tmp/ocr-output';
@@ -88,19 +108,5 @@ if (!url) {
     } else {
       console.log('No text detected.');
     }
-
-    process.exit(0);
-  } catch (err) {
-    console.error('Error:', err.message);
-    try {
-      const { chromium: c2 } = await import('playwright');
-      const b2 = await c2.launch({ channel: 'chrome', args: ['--no-sandbox'] });
-      const p2 = await b2.newPage();
-      const s = await p2.context().newPage();
-      await s.goto('about:blank');
-      await s.screenshot({ path: '/tmp/ocr-error.png' });
-      await b2.close();
-    } catch {}
-    process.exit(1);
   }
 })();
