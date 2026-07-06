@@ -1,6 +1,6 @@
 {
   "name": "playwright-toolkit",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Browser automation toolkit for AI agents — screenshot, debug, OCR, multi-step flow testing. Zero hardcoded config.",
   "type": "module",
   "scripts": {
