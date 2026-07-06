@@ -1,0 +1,9 @@
+node_modules/
+screenshots/
+output/
+.tmp/
+*.png
+*.jpg
+*.webp
+*.pdf
+.env

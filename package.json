@@ -1,0 +1,39 @@
+{
+  "name": "playwright-toolkit",
+  "version": "1.0.0",
+  "description": "Browser automation toolkit for AI agents — screenshot, debug, OCR, multi-step flow testing. Zero hardcoded config.",
+  "type": "module",
+  "scripts": {
+    "screenshot": "node screenshot.mjs",
+    "flow": "node flow.mjs",
+    "debug": "node debug.mjs",
+    "ocr": "node ocr-screenshot.mjs",
+    "devices": "node device-screenshots.mjs",
+    "connect": "node connect-existing.mjs"
+  },
+  "keywords": [
+    "playwright",
+    "browser-automation",
+    "ai-tools",
+    "screenshot",
+    "ocr",
+    "testing",
+    "debugging",
+    "web-automation"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/USERNAME/playwright-toolkit"
+  },
+  "bugs": {
+    "url": "https://github.com/USERNAME/playwright-toolkit/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.61.1"
+  }
+}
