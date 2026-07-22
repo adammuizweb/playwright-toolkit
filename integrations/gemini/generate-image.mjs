@@ -21,7 +21,7 @@ import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { resolve, dirname } from 'path';
 
 const CDP_PORT = parseInt(process.env.CDP_PORT || '9222', 10);
-const OUTPUT = resolve(process.env.OUTPUT || './output/gemini-generated.png');
+const OUTPUT = resolve(process.env.OUTPUT || process.env.GEMINI_OUTPUT || './output/gemini-generated.png');
 const PROMPT = process.argv[2] || process.env.PROMPT ||
   'Gambarkan ilustrasi vektor modern tema gelap dengan aksen hijau ' +
   'tentang browser automation — robot asisten AI mengendalikan beberapa browser. ' +

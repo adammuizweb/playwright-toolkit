@@ -7,3 +7,9 @@ output/
 *.webp
 *.pdf
 .env
+
+# Temporary debug/test scripts with credentials or session cookies
+ss*.cjs
+tb-*.cjs
+*-debug.cjs
+*-test.cjs
